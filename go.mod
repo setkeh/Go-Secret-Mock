@@ -1,6 +1,6 @@
 module github.com/setkeh/go-secret-mock
 
-go 1.26.1
+go 1.25.7
 
 require github.com/godbus/dbus/v5 v5.2.2
 
