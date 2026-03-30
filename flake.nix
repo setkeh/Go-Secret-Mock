@@ -2,7 +2,7 @@
   description = "Go Secret Mock for Flutter Development";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -18,21 +18,13 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             go
+            pkg-config
             dbus
-            dbus-glib
           ];
 
           shellHook = ''
-            echo "--- Go Secret Mock Build Environment ---"
-
-            echo "--- Starting DBUS for unit Tetsing ---"
             export $(dbus-launch --exit-with-session)
-            
-            echo "--- Running Go Mod Tidy ---"
-            go mod tidy
-
-            echo "--- Running Go Build ---"
-            go build .
+            echo "--- Go Secret Mock Build Environment ---"
           '';
         };
       });
