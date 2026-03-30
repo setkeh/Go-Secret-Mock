@@ -18,10 +18,15 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             go
+            dbus
+            dbus-glib
           ];
 
           shellHook = ''
             echo "--- Go Secret Mock Build Environment ---"
+
+            echo "--- Starting DBUS for unit Tetsing ---"
+            export $(dbus-launch --exit-with-session)
             
             echo "--- Running Go Mod Tidy ---"
             go mod tidy
