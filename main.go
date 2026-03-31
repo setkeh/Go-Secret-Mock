@@ -369,7 +369,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Connect explicitly to the address
 	conn, err := dbus.Dial(addr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to %s: %v\n", addr, err)
@@ -377,12 +376,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	reply, err := conn.RequestName(serviceName, dbus.NameFlagReplaceExisting)
+	server, err := dbus.NewServer(conn)
 	if err != nil {
-		log.Fatalf("Failed to request name %s: %v", serviceName, err)
-	}
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Fatalf("Name %s already taken or other error: %v", serviceName, reply)
+		log.Fatalf("Failed to create D-Bus server: %v", err)
 	}
 
 	secretService := &SecretService{
@@ -390,40 +386,46 @@ func main() {
 		SessionsCrypto: make(map[dbus.ObjectPath]*SessionCrypto),
 	}
 
-	err = conn.Export(secretService, objectPath, serviceInterface)
+	err = server.Export(secretService, objectPath, serviceInterface)
 	if err != nil {
 		log.Fatalf("Failed to export object: %v", err)
 	}
 
-	// Export the default "login" collection
 	loginCollectionPath := dbus.ObjectPath("/org/freedesktop/secrets/collection/login")
 	iface := "org.freedesktop.Secret.Collection"
-	ifaceProps := "org.freedesktop.DBus.Properties" // For getting/setting properties on the collection object
+	ifaceProps := "org.freedesktop.DBus.Properties"
 
 	collectionVal, ok := secretService.Store.Collections.Load(loginCollectionPath)
 	if !ok {
-		log.Fatalf("Login collection not found in store, this should not happen.")
+		log.Fatalf("Login collection not found in store")
 	}
 	loginCollection := collectionVal.(*Collection)
 
 	loginCollectionObject := &CollectionObject{
 		Path:          loginCollectionPath,
 		Collection:    loginCollection,
-		SecretService: secretService, // Pass the reference to the main service
+		SecretService: secretService,
 	}
 
-	err = conn.Export(loginCollectionObject, loginCollectionPath, iface)
+	err = server.Export(loginCollectionObject, loginCollectionPath, iface)
 	if err != nil {
 		log.Fatalf("Failed to export login collection object for interface %s: %v", iface, err)
 	}
 
-	// Export standard D-Bus properties interface for the collection
-	err = conn.Export(loginCollectionObject, loginCollectionPath, ifaceProps)
+	err = server.Export(loginCollectionObject, loginCollectionPath, ifaceProps)
 	if err != nil {
 		log.Fatalf("Failed to export login collection object for interface %s: %v", ifaceProps, err)
 	}
 
+	reply, err := server.RequestName(serviceName, dbus.NameFlagReplaceExisting)
+	if err != nil {
+		log.Fatalf("Failed to request name %s: %v", serviceName, err)
+	}
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		log.Fatalf("Name %s already taken or other error: %v", serviceName, reply)
+	}
+
 	fmt.Println("Service started. Listening for D-Bus calls...")
 
-	select {} // Block forever to keep the service running
+	server.Listen()
 }
