@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
 	"sync"
 	"time"
 
@@ -361,9 +362,17 @@ func (s *SecretService) Unlock(objects []dbus.ObjectPath) ([]dbus.ObjectPath, db
 func main() {
 	fmt.Println("Go Secret Mock Service starting...")
 
-	conn, err := dbus.ConnectSessionBus(nil)
+	addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+	if addr == "" {
+		fmt.Fprintln(os.Stderr, "DBUS_SESSION_BUS_ADDRESS not set")
+		os.Exit(1)
+	}
+
+	// Connect explicitly to the address
+	conn, err := dbus.Dial(addr)
 	if err != nil {
-		log.Fatalf("Failed to connect to session bus: %v", err)
+		fmt.Fprintf(os.Stderr, "Failed to connect to %s: %v\n", addr, err)
+		os.Exit(1)
 	}
 	defer conn.Close()
 
