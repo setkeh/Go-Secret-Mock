@@ -191,13 +191,19 @@ func (c *CollectionObject) GetSecrets(items []dbus.ObjectPath) (map[dbus.ObjectP
 	sessionCrypto = sessionCryptoVal
 	for _, itemPath := range items {
 		secretVal, ok := collection.Secrets.Load(itemPath)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		internalSecret := secretVal.(*Secret)
-		if len(internalSecret.Value) < aes.BlockSize { continue }
+		if len(internalSecret.Value) < aes.BlockSize {
+			continue
+		}
 		iv := internalSecret.Value[:aes.BlockSize]
 		encryptedValue := internalSecret.Value[aes.BlockSize:]
 		decryptedValue, err := AESDecrypt(sessionCrypto.SessionKey, iv, encryptedValue)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		secrets[itemPath] = DBusSecret{
 			Session:     sessionPath,
 			Parameters:  iv,
@@ -218,6 +224,7 @@ func (c *CollectionObject) Get(iface string, prop string) (dbus.Variant, *dbus.E
 	}
 	collectionVal, _ := c.Service.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
+	fmt.Println(prop)
 	switch prop {
 	case "Label":
 		return dbus.MakeVariant(collection.Label), nil
@@ -278,7 +285,6 @@ func (c *CollectionObject) Set(iface string, prop string, value dbus.Variant) *d
 	return newDBusError("org.freedesktop.DBus.Error.PropertyReadOnly", "Property is read-only")
 }
 
-
 func main() {
 	fmt.Println("Go Secret Mock Service starting...")
 	addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
@@ -291,6 +297,7 @@ func main() {
 		log.Fatalf("FATAL: Failed to connect to D-Bus at %s: %v\n", addr, err)
 	}
 	defer conn.Close()
+	fmt.Println(conn.Names())
 
 	reply, err := conn.RequestName(serviceName, dbus.NameFlagReplaceExisting)
 	if err != nil {
@@ -299,6 +306,7 @@ func main() {
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Fatalf("FATAL: Name %s already taken: %v", serviceName, reply)
 	}
+	fmt.Println(reply.String())
 
 	secretService := &SecretService{
 		Store:          NewInMemoryStore(),
