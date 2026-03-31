@@ -21,22 +21,26 @@ const (
 	loginCollectionPath = "/org/freedesktop/secrets/collection/login"
 )
 
+// newDBusError creates a D-Bus error.
 func newDBusError(name string, msg string) *dbus.Error {
 	return dbus.MakeFailedError(dbus.NewError(name, []any{msg}))
 }
 
+// SessionCrypto holds cryptographic parameters for a session.
 type SessionCrypto struct {
 	PrivateKey   *big.Int
 	SharedSecret []byte
 	SessionKey   []byte
 }
 
+// SecretService implements all the necessary D-Bus interfaces.
 type SecretService struct {
 	Store          *InMemoryStore
 	SessionsCrypto map[dbus.ObjectPath]*SessionCrypto
 	mu             sync.Mutex
 }
 
+// DBusSecret is the D-Bus representation of a secret.
 type DBusSecret struct {
 	Session     dbus.ObjectPath
 	Parameters  []byte
@@ -47,7 +51,9 @@ type DBusSecret struct {
 // --- org.freedesktop.Secret.Service Methods ---
 
 func (s *SecretService) OpenSession(algorithm string, input dbus.Variant) (dbus.Variant, dbus.ObjectPath, *dbus.Error) {
-	log.Printf("Service.OpenSession called with algorithm: %s", algorithm)
+	log.Println(">>> Service.OpenSession CALLED")
+	defer log.Println("<<< Service.OpenSession RETURNED")
+
 	if algorithm != "dh-ietf1024-sha256-aes128-cbc-pkcs7" {
 		return dbus.MakeVariant(""), "", newDBusError("org.freedesktop.Secret.Error.UnsupportedAlgorithm", "Unsupported algorithm")
 	}
@@ -80,19 +86,20 @@ func (s *SecretService) OpenSession(algorithm string, input dbus.Variant) (dbus.
 		SessionKey:   sessionKey,
 	}
 	s.Store.Sessions.Store(sessionPath, &Session{Path: sessionPath, Algorithm: algorithm, CreationTime: time.Now()})
-	log.Printf("Service.OpenSession successful. New session path: %s", sessionPath)
 	return dbus.MakeVariant(serverPublicKey.Bytes()), sessionPath, nil
 }
 
 func (s *SecretService) Unlock(objects []dbus.ObjectPath) ([]dbus.ObjectPath, dbus.ObjectPath, *dbus.Error) {
-	log.Printf("Service.Unlock called for objects: %v", objects)
+	log.Println(">>> Service.Unlock CALLED")
+	defer log.Println("<<< Service.Unlock RETURNED")
 	return objects, "/", nil
 }
 
 // --- org.freedesktop.Secret.Collection Methods (now on SecretService) ---
 
 func (s *SecretService) SearchItems(attributes map[string]string) ([]dbus.ObjectPath, *dbus.Error) {
-	log.Printf("Collection.SearchItems called with attributes: %v", attributes)
+	log.Println(">>> Collection.SearchItems CALLED")
+	defer log.Println("<<< Collection.SearchItems RETURNED")
 	collectionVal, _ := s.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
 	var matchingItems []dbus.ObjectPath
@@ -114,7 +121,9 @@ func (s *SecretService) SearchItems(attributes map[string]string) ([]dbus.Object
 }
 
 func (s *SecretService) CreateItem(properties map[string]dbus.Variant, secret DBusSecret, replace bool) (dbus.ObjectPath, dbus.ObjectPath, *dbus.Error) {
-	log.Printf("Collection.CreateItem called for secret with content-type: %s", secret.ContentType)
+	log.Println(">>> Collection.CreateItem CALLED")
+	defer log.Println("<<< Collection.CreateItem RETURNED")
+
 	collectionVal, _ := s.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
 
@@ -138,10 +147,12 @@ func (s *SecretService) CreateItem(properties map[string]dbus.Variant, secret DB
 	if err != nil {
 		return "", "", newDBusError("org.freedesktop.Secret.Error.Failed", "Encryption failed")
 	}
+
 	s.mu.Lock()
 	newSecretID := s.Store.NextSecretID
 	s.Store.NextSecretID++
 	s.mu.Unlock()
+
 	newSecretPath := dbus.ObjectPath(fmt.Sprintf("%s/item%d", loginCollectionPath, newSecretID))
 	newSecret := &Secret{
 		Path:        newSecretPath,
@@ -153,39 +164,48 @@ func (s *SecretService) CreateItem(properties map[string]dbus.Variant, secret DB
 		SessionPath: secret.Session,
 	}
 	collection.Secrets.Store(newSecretPath, newSecret)
-	log.Printf("Created new secret at path: %s", newSecretPath)
 	return newSecretPath, "/", nil
 }
 
-func (s *SecretService) GetSecrets(items []dbus.ObjectPath, session dbus.ObjectPath) (map[dbus.ObjectPath]DBusSecret, *dbus.Error) {
-	log.Printf("Collection.GetSecrets called for %d items", len(items))
+func (s *SecretService) GetSecrets(items []dbus.ObjectPath) (map[dbus.ObjectPath]DBusSecret, *dbus.Error) {
+	log.Println(">>> Collection.GetSecrets CALLED")
+	defer log.Println("<<< Collection.GetSecrets RETURNED")
+
+	secrets := make(map[dbus.ObjectPath]DBusSecret)
+	if len(items) == 0 {
+		return secrets, nil
+	}
+
 	collectionVal, _ := s.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
-	secrets := make(map[dbus.ObjectPath]DBusSecret)
-	sessionCryptoVal, ok := s.SessionsCrypto[session]
+	
+	// This is a big assumption: all secrets in a single GetSecrets call were encrypted with the same session.
+	// We find the first secret and use its session for all of them.
+	var sessionCrypto *SessionCrypto
+	var sessionPath dbus.ObjectPath
+
+	firstSecretVal, ok := collection.Secrets.Load(items[0])
 	if !ok {
-		return nil, newDBusError("org.freedesktop.Secret.Error.NoSession", "Session not found for decryption")
+		return nil, newDBusError("org.freedesktop.Secret.Error.NoSuchObject", "First item not found")
 	}
+	firstSecret := firstSecretVal.(*Secret)
+	sessionPath = firstSecret.SessionPath
+	sessionCrypto, ok = s.SessionsCrypto[sessionPath]
+	if !ok {
+		return nil, newDBusError("org.freedesktop.Secret.Error.NoSession", "Session for decryption not found")
+	}
+
 	for _, itemPath := range items {
 		secretVal, ok := collection.Secrets.Load(itemPath)
-		if !ok {
-			log.Printf("Secret not found at path: %s", itemPath)
-			continue
-		}
+		if !ok { continue }
 		internalSecret := secretVal.(*Secret)
-		if len(internalSecret.Value) < aes.BlockSize {
-			log.Printf("Secret value at %s is too short for decryption", itemPath)
-			continue
-		}
+		if len(internalSecret.Value) < aes.BlockSize { continue }
 		iv := internalSecret.Value[:aes.BlockSize]
 		encryptedValue := internalSecret.Value[aes.BlockSize:]
-		decryptedValue, err := AESDecrypt(sessionCryptoVal.SessionKey, iv, encryptedValue)
-		if err != nil {
-			log.Printf("Failed to decrypt secret at %s: %v", itemPath, err)
-			continue
-		}
+		decryptedValue, err := AESDecrypt(sessionCrypto.SessionKey, iv, encryptedValue)
+		if err != nil { continue }
 		secrets[itemPath] = DBusSecret{
-			Session:     session,
+			Session:     sessionPath,
 			Parameters:  iv,
 			Value:       decryptedValue,
 			ContentType: internalSecret.ContentType,
@@ -194,10 +214,13 @@ func (s *SecretService) GetSecrets(items []dbus.ObjectPath, session dbus.ObjectP
 	return secrets, nil
 }
 
-// --- org.freedesktop.DBus.Properties Methods (for the Collection) ---
+
+// --- org.freedesktop.DBus.Properties Methods ---
 
 func (s *SecretService) Get(iface string, prop string) (dbus.Variant, *dbus.Error) {
-	log.Printf("Properties.Get called on iface %s for prop %s", iface, prop)
+	log.Printf(">>> Properties.Get CALLED for iface '%s', prop '%s'", iface, prop)
+	defer log.Printf("<<< Properties.Get RETURNED for iface '%s', prop '%s'", iface, prop)
+	
 	if iface != collectionInterface {
 		return dbus.MakeVariant(""), newDBusError("org.freedesktop.DBus.Error.InvalidArgs", "Invalid interface for Get")
 	}
@@ -225,7 +248,9 @@ func (s *SecretService) Get(iface string, prop string) (dbus.Variant, *dbus.Erro
 }
 
 func (s *SecretService) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error) {
-	log.Printf("Properties.GetAll called on iface %s", iface)
+	log.Printf(">>> Properties.GetAll CALLED for iface '%s'", iface)
+	defer log.Printf("<<< Properties.GetAll RETURNED for iface '%s'", iface)
+
 	if iface != collectionInterface {
 		return nil, newDBusError("org.freedesktop.DBus.Error.InvalidArgs", "Invalid interface for GetAll")
 	}
@@ -244,7 +269,9 @@ func (s *SecretService) GetAll(iface string) (map[string]dbus.Variant, *dbus.Err
 }
 
 func (s *SecretService) Set(iface string, prop string, value dbus.Variant) *dbus.Error {
-	log.Printf("Properties.Set called on iface %s for prop %s", iface, prop)
+	log.Printf(">>> Properties.Set CALLED for iface '%s', prop '%s'", iface, prop)
+	defer log.Printf("<<< Properties.Set RETURNED for iface '%s', prop '%s'", iface, prop)
+
 	if iface != collectionInterface {
 		return newDBusError("org.freedesktop.DBus.Error.InvalidArgs", "Invalid interface for Set")
 	}
@@ -292,8 +319,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: Failed to export Secret.Service interface: %v", err)
 	}
-
-	// Also export the service on the collection and properties interfaces at the collection path
+	
+	// Also export the same object on the collection path for Collection and Properties interfaces
 	err = conn.Export(secretService, loginCollectionPath, collectionInterface)
 	if err != nil {
 		log.Fatalf("FATAL: Failed to export Secret.Collection interface: %v", err)
