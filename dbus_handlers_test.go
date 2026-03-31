@@ -2,26 +2,23 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"testing"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
-	"github.com/godbus/dbus/v5/prop"
 )
 
 // setupTestDbus sets up a test D-Bus environment with a service and client connection.
 // It returns the service, client connections, and a cleanup function.
 func setupTestDbus(t *testing.T) (*dbus.Conn, *dbus.Conn, func()) {
 	// Use in-process D-Bus setup for testing
-	serviceConn, err := dbus.ConnectSession(nil)
+	serviceConn, err := dbus.ConnectSessionBus(nil)
 	if err != nil {
 		t.Fatalf("Failed to connect service to session bus: %v", err)
 	}
 
-	clientConn, err := dbus.ConnectSession(nil)
+	clientConn, err := dbus.ConnectSessionBus(nil)
 	if err != nil {
 		serviceConn.Close()
 		t.Fatalf("Failed to connect client to session bus: %v", err)
@@ -41,7 +38,7 @@ func TestDbusOpenSession(t *testing.T) {
 
 	// Create and export our SecretService
 	secretService := &SecretService{
-		Store:        NewInMemoryStore(),
+		Store:          NewInMemoryStore(),
 		SessionsCrypto: make(map[dbus.ObjectPath]*SessionCrypto),
 	}
 

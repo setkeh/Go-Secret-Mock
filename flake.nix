@@ -23,7 +23,7 @@
           ];
 
           shellHook = ''
-            export $(dbus-launch --exit-with-session)
+            eval $(dbus-launch --exit-with-session)
             echo "--- Go Secret Mock Build Environment ---"
           '';
         };

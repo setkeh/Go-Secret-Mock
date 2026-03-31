@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"crypto/aes" // Added import
+
 	"github.com/godbus/dbus/v5"
 )
 
@@ -19,21 +20,21 @@ const (
 
 // newDBusError is a helper function to create *dbus.Error
 func newDBusError(name string, msg string) *dbus.Error {
-	return dbus.MakeError(name, []interface{}{msg})
+	return dbus.MakeFailedError(dbus.NewError(name, []any{msg}))
 }
 
 // SessionCrypto holds cryptographic parameters for a specific session
 type SessionCrypto struct {
-	PrivateKey *big.Int
+	PrivateKey   *big.Int
 	SharedSecret []byte
-	SessionKey []byte // Derived from SharedSecret
+	SessionKey   []byte // Derived from SharedSecret
 }
 
 // SecretService represents our D-Bus service
 type SecretService struct {
-	Store        *InMemoryStore
+	Store          *InMemoryStore
 	SessionsCrypto map[dbus.ObjectPath]*SessionCrypto // Stores crypto info per session
-	mu           sync.Mutex                           // Mutex to protect SessionsCrypto
+	mu             sync.Mutex                         // Mutex to protect SessionsCrypto
 }
 
 // DBusSecret represents the D-Bus Secret structure.
@@ -46,8 +47,8 @@ type DBusSecret struct {
 
 // CollectionObject represents a D-Bus collection object
 type CollectionObject struct {
-	Path dbus.ObjectPath
-	Collection *Collection // Reference to the actual in-memory collection
+	Path          dbus.ObjectPath
+	Collection    *Collection    // Reference to the actual in-memory collection
 	SecretService *SecretService // A reference back to the main service
 }
 
@@ -219,7 +220,6 @@ func (c *CollectionObject) CreateItem(properties map[string]dbus.Variant, secret
 	// Prepend IV to the encrypted value
 	finalSecretValue := append(iv, encryptedValue...)
 
-
 	// Generate new secret path
 	c.SecretService.mu.Lock()
 	newSecretPath := dbus.ObjectPath(fmt.Sprintf("%s/item/%d", c.Path, c.SecretService.Store.NextSecretID))
@@ -321,7 +321,6 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 		sharedSecret = big.NewInt(0) // Dummy shared secret
 	}
 
-
 	// Derive session key
 	sessionKey := DeriveKeyFromSharedSecret(sharedSecret)
 
@@ -332,8 +331,8 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 	s.mu.Unlock()
 
 	session := &Session{
-		Path:        sessionPath,
-		Algorithm:   algorithm,
+		Path:         sessionPath,
+		Algorithm:    algorithm,
 		SharedSecret: sessionKey, // Store the derived key as SharedSecret for simplicity in session struct
 		CreationTime: time.Now(),
 	}
@@ -342,9 +341,9 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 	// Store crypto parameters for this session
 	s.mu.Lock()
 	s.SessionsCrypto[sessionPath] = &SessionCrypto{
-		PrivateKey: serverPrivateKey,
+		PrivateKey:   serverPrivateKey,
 		SharedSecret: sharedSecret.Bytes(),
-		SessionKey: sessionKey,
+		SessionKey:   sessionKey,
 	}
 	s.mu.Unlock()
 
@@ -362,7 +361,7 @@ func (s *SecretService) Unlock(objects []dbus.ObjectPath) ([]dbus.ObjectPath, db
 func main() {
 	fmt.Println("Go Secret Mock Service starting...")
 
-	conn, err := dbus.ConnectSession(nil)
+	conn, err := dbus.ConnectSessionBus(nil)
 	if err != nil {
 		log.Fatalf("Failed to connect to session bus: %v", err)
 	}
@@ -377,7 +376,7 @@ func main() {
 	}
 
 	secretService := &SecretService{
-		Store:        NewInMemoryStore(),
+		Store:          NewInMemoryStore(),
 		SessionsCrypto: make(map[dbus.ObjectPath]*SessionCrypto),
 	}
 
@@ -398,8 +397,8 @@ func main() {
 	loginCollection := collectionVal.(*Collection)
 
 	loginCollectionObject := &CollectionObject{
-		Path: loginCollectionPath,
-		Collection: loginCollection,
+		Path:          loginCollectionPath,
+		Collection:    loginCollection,
 		SecretService: secretService, // Pass the reference to the main service
 	}
 
