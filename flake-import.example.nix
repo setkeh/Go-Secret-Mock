@@ -10,10 +10,8 @@
     utils.url = "github:numtide/flake-utils";
 
     # Add the go-secret-mock project as an input
-    # Replace "path:../Go-Secret-Mock" with the actual path to your go-secret-mock flake
-    # or "github:your-username/Go-Secret-Mock" if it's in a Git repository.
     go-secret-mock = {
-      url = "path:../Go-Secret-Mock"; # Adjust this path as needed
+      url = "github.com:setkeh/Go-Secret-Mock";
       flake = true;
     };
   };
