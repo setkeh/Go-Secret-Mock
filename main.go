@@ -376,9 +376,12 @@ func main() {
 	}
 	defer conn.Close()
 
-	server, err := dbus.NewServer(conn)
+	reply, err := conn.RequestName(serviceName, dbus.NameFlagReplaceExisting)
 	if err != nil {
-		log.Fatalf("Failed to create D-Bus server: %v", err)
+		log.Fatalf("Failed to request name %s: %v", serviceName, err)
+	}
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		log.Fatalf("Name %s already taken or other error: %v", serviceName, reply)
 	}
 
 	secretService := &SecretService{
@@ -386,7 +389,7 @@ func main() {
 		SessionsCrypto: make(map[dbus.ObjectPath]*SessionCrypto),
 	}
 
-	err = server.Export(secretService, objectPath, serviceInterface)
+	err = conn.Export(secretService, objectPath, serviceInterface)
 	if err != nil {
 		log.Fatalf("Failed to export object: %v", err)
 	}
@@ -407,25 +410,21 @@ func main() {
 		SecretService: secretService,
 	}
 
-	err = server.Export(loginCollectionObject, loginCollectionPath, iface)
+	err = conn.Export(loginCollectionObject, loginCollectionPath, iface)
 	if err != nil {
 		log.Fatalf("Failed to export login collection object for interface %s: %v", iface, err)
 	}
 
-	err = server.Export(loginCollectionObject, loginCollectionPath, ifaceProps)
+	err = conn.Export(loginCollectionObject, loginCollectionPath, ifaceProps)
 	if err != nil {
 		log.Fatalf("Failed to export login collection object for interface %s: %v", ifaceProps, err)
 	}
 
-	reply, err := server.RequestName(serviceName, dbus.NameFlagReplaceExisting)
-	if err != nil {
-		log.Fatalf("Failed to request name %s: %v", serviceName, err)
-	}
-	if reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Fatalf("Name %s already taken or other error: %v", serviceName, reply)
-	}
-
 	fmt.Println("Service started. Listening for D-Bus calls...")
 
-	server.Listen()
+	// Explicitly process incoming D-Bus messages.
+	for range conn.Incoming {
+		// This loop body can be empty. The library handles dispatching
+		// to exported methods in the background as messages come in.
+	}
 }
