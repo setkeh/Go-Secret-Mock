@@ -290,19 +290,24 @@ func (c *CollectionObject) GetSecrets(itemPaths []dbus.ObjectPath) (map[dbus.Obj
 
 // OpenSession handles the D-Bus OpenSession method call.
 // It performs a Diffie-Hellman key exchange.
-func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byte) (dbus.ObjectPath, []byte, *dbus.Error) {
+func (s *SecretService) OpenSession(algorithm string, input dbus.Variant) (dbus.Variant, dbus.ObjectPath, *dbus.Error) {
 	log.Printf("OpenSession called with algorithm: %s", algorithm)
 
 	if algorithm != "dh-ietf1024-sha256-aes128-cbc-pkcs7" {
 		log.Printf("Unsupported algorithm: %s", algorithm)
-		return "", nil, newDBusError("org.freedesktop.Secret.Error.UnsupportedAlgorithm", "Unsupported algorithm")
+		return dbus.MakeVariant(""), "", newDBusError("org.freedesktop.Secret.Error.UnsupportedAlgorithm", "Unsupported algorithm")
+	}
+
+	clientPublicKeyBytes, ok := input.Value().([]byte)
+	if !ok {
+		return dbus.MakeVariant(""), "", newDBusError("org.freedesktop.DBus.Error.InvalidArgs", "Input variant is not a byte array")
 	}
 
 	// Generate server's DH key pair
 	serverPrivateKey, serverPublicKey, err := GenerateDHKeyPair()
 	if err != nil {
 		log.Printf("Failed to generate DH key pair: %v", err)
-		return "", nil, newDBusError("org.freedesktop.Secret.Error.Failed", "Failed to generate DH key pair")
+		return dbus.MakeVariant(""), "", newDBusError("org.freedesktop.Secret.Error.Failed", "Failed to generate DH key pair")
 	}
 
 	var sharedSecret *big.Int
@@ -311,13 +316,9 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 		sharedSecret, err = ComputeDHSharedSecret(serverPrivateKey, clientPublicKey)
 		if err != nil {
 			log.Printf("Failed to compute shared secret: %v", err)
-			return "", nil, newDBusError("org.freedesktop.Secret.Error.Failed", "Failed to compute shared secret")
+			return dbus.MakeVariant(""), "", newDBusError("org.freedesktop.Secret.Error.Failed", "Failed to compute shared secret")
 		}
 	} else {
-		// If client public key is empty, this might be a non-encrypted session or an error.
-		// For mocking purposes, we can generate a dummy shared secret or handle as an error.
-		// For now, let's treat it as an unencrypted session if the client doesn't provide a key,
-		// though the spec implies a key exchange. Let's create a dummy shared secret for progression.
 		log.Println("Client public key is empty. Proceeding with a dummy shared secret for now.")
 		sharedSecret = big.NewInt(0) // Dummy shared secret
 	}
@@ -334,7 +335,7 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 	session := &Session{
 		Path:         sessionPath,
 		Algorithm:    algorithm,
-		SharedSecret: sessionKey, // Store the derived key as SharedSecret for simplicity in session struct
+		SharedSecret: sessionKey,
 		CreationTime: time.Now(),
 	}
 	s.Store.Sessions.Store(sessionPath, session)
@@ -349,7 +350,7 @@ func (s *SecretService) OpenSession(algorithm string, clientPublicKeyBytes []byt
 	s.mu.Unlock()
 
 	log.Printf("OpenSession successful. New session path: %s", sessionPath)
-	return sessionPath, serverPublicKey.Bytes(), nil
+	return dbus.MakeVariant(serverPublicKey.Bytes()), sessionPath, nil
 }
 
 // Unlock automatically returns the requested object paths as unlocked and a null path for the prompt.

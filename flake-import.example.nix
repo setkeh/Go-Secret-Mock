@@ -44,12 +44,22 @@
 
           shellHook = ''
             echo "--- Flutter App with Go Secret Mock Environment ---"
-            # Any additional shell setup specific to your Flutter app can go here.
-            # The shellHook from go-secret-mock will run before this,
-            # ensuring the D-Bus session is set up.
+            # The shellHook from go-secret-mock runs first, setting up the D-Bus session.
 
-            # Example: You might want to display info about the D-Bus session
-            echo "DBUS_SESSION_BUS_ADDRESS: $DBUS_SESSION_BUS_ADDRESS"
+            # The 'go-secret-mock' source code is available via the flake input.
+            # You can run the mock service from its source directory.
+            # An alias is created for convenience.
+
+            echo "
+            To run the Go Secret Mock service, use the following alias:
+            
+              run-secret-mock
+            
+            This will start the service in the background.
+            You can also run it manually: go run -C ${go-secret-mock} .
+            "
+
+            alias run-secret-mock="go run -C ${go-secret-mock} . &"
           '';
         };
       });

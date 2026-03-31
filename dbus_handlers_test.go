@@ -15,16 +15,18 @@ func TestDbusOpenSession(t *testing.T) {
 		SessionsCrypto: make(map[dbus.ObjectPath]*SessionCrypto),
 	}
 
-	var sessionPath dbus.ObjectPath
-	var serverPublicKey []byte
-
 	// Simulate a client calling OpenSession with a dummy public key
 	clientDummyPublicKey := []byte{0x01, 0x02, 0x03, 0x04}
 
 	// Directly call the OpenSession method
-	sessionPath, serverPublicKey, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", clientDummyPublicKey)
+	outputVariant, sessionPath, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", dbus.MakeVariant(clientDummyPublicKey))
 	if err != nil {
 		t.Fatalf("OpenSession failed: %v", err)
+	}
+
+	serverPublicKey, ok := outputVariant.Value().([]byte)
+	if !ok {
+		t.Fatalf("Server public key is not a byte array")
 	}
 
 	if sessionPath == "" || sessionPath == "/" {
@@ -86,7 +88,7 @@ func TestDbusCreateItem(t *testing.T) {
 	}
 
 	// First, establish a session for encryption
-	sessionPath, _, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", []byte{})
+	_, sessionPath, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", dbus.MakeVariant([]byte{}))
 	if err != nil {
 		t.Fatalf("Failed to open session: %v", err)
 	}
@@ -156,7 +158,7 @@ func TestDbusGetSecrets(t *testing.T) {
 	}
 
 	// 1. Establish a session
-	sessionPath, _, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", []byte{})
+	_, sessionPath, err := secretService.OpenSession("dh-ietf1024-sha256-aes128-cbc-pkcs7", dbus.MakeVariant([]byte{}))
 	if err != nil {
 		t.Fatalf("Failed to open session: %v", err)
 	}
@@ -201,7 +203,7 @@ func TestDbusGetSecrets(t *testing.T) {
 	if !bytes.Equal(retrievedDBusSecret.Value, plaintextSecret) {
 		t.Errorf("Decrypted secret value mismatch.\nGot:      %s\nExpected: %s", retrievedDBusSecret.Value, plaintextSecret)
 	}
-	if retrievedDBusSecret.Session != sessionPath {
+	if retrievedDBusSecret.Session != dbus.ObjectPath(sessionPath) {
 		t.Errorf("Retrieved secret session path mismatch. Got %s, expected %s", retrievedDBusSecret.Session, sessionPath)
 	}
 	if retrievedDBusSecret.ContentType != dbusSecret.ContentType {
