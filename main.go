@@ -147,12 +147,10 @@ func (s *SecretService) CreateItem(properties map[string]dbus.Variant, secret DB
 	if err != nil {
 		return "", "", newDBusError("org.freedesktop.Secret.Error.Failed", "Encryption failed")
 	}
-
 	s.mu.Lock()
 	newSecretID := s.Store.NextSecretID
 	s.Store.NextSecretID++
 	s.mu.Unlock()
-
 	newSecretPath := dbus.ObjectPath(fmt.Sprintf("%s/item%d", loginCollectionPath, newSecretID))
 	newSecret := &Secret{
 		Path:        newSecretPath,
@@ -179,21 +177,23 @@ func (s *SecretService) GetSecrets(items []dbus.ObjectPath) (map[dbus.ObjectPath
 	collectionVal, _ := s.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
 	
-	// This is a big assumption: all secrets in a single GetSecrets call were encrypted with the same session.
-	// We find the first secret and use its session for all of them.
+	// Assumption: all secrets in a single GetSecrets call were encrypted with the same session.
+	// We derive the session from the first item in the list.
 	var sessionCrypto *SessionCrypto
 	var sessionPath dbus.ObjectPath
 
-	firstSecretVal, ok := collection.Secrets.Load(items[0])
+	firstItemVal, ok := collection.Secrets.Load(items[0])
 	if !ok {
 		return nil, newDBusError("org.freedesktop.Secret.Error.NoSuchObject", "First item not found")
 	}
-	firstSecret := firstSecretVal.(*Secret)
+	firstSecret := firstItemVal.(*Secret)
 	sessionPath = firstSecret.SessionPath
-	sessionCrypto, ok = s.SessionsCrypto[sessionPath]
+	
+sessionCryptoVal, ok := s.SessionsCrypto[sessionPath]
 	if !ok {
 		return nil, newDBusError("org.freedesktop.Secret.Error.NoSession", "Session for decryption not found")
 	}
+	sessionCrypto = sessionCryptoVal
 
 	for _, itemPath := range items {
 		secretVal, ok := collection.Secrets.Load(itemPath)
@@ -226,7 +226,7 @@ func (s *SecretService) Get(iface string, prop string) (dbus.Variant, *dbus.Erro
 	}
 	collectionVal, _ := s.Store.Collections.Load(loginCollectionPath)
 	collection := collectionVal.(*Collection)
-	switch prop {
+	sswitch prop {
 	case "Label":
 		return dbus.MakeVariant(collection.Label), nil
 	case "Locked":
